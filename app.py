@@ -48,36 +48,34 @@ with ml_center:
 st.divider()
 
 # ── Input Form ────────────────────────────────────────────────────────────────
-form_left, form_center, form_right = st.columns([1, 3, 1])
-with form_center:
-    with st.form("search_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            author_name = st.text_input(
-                "Author Name *",
-                placeholder="e.g., Robert Alexander",
-                help="Full name as it appears on publications.",
-            )
-            country = st.text_input(
-                "Country",
-                placeholder="e.g., United States",
-                help="Used to narrow down institution lookup.",
-            )
-        with col2:
-            affiliation = st.text_input(
-                "Affiliation *",
-                placeholder="e.g., NY Institute of Technology",
-                help="Institution name to resolve to a ROR ID.",
-            )
-            email = st.text_input(
-                "Email",
-                placeholder="e.g., ralexa04@nyit.edu",
-                help="Institutional email used for domain-based ROR matching.",
-            )
-
-        submitted = st.form_submit_button(
-            "Run Proactive Search", type="primary", use_container_width=True
+with st.form("search_form"):
+    col1, col2 = st.columns(2)
+    with col1:
+        author_name = st.text_input(
+            "Author Name *",
+            placeholder="John Doe",
+            help="Full name as it appears on publications.",
         )
+        country = st.text_input(
+            "Country",
+            placeholder="United States",
+            help="Used to narrow down institution lookup.",
+        )
+    with col2:
+        affiliation = st.text_input(
+            "Affiliation *",
+            placeholder="ACME university",
+            help="Institution name to resolve to a ROR ID.",
+        )
+        email = st.text_input(
+            "Email",
+            placeholder="example@site.com",
+            help="Institutional email used for domain-based ROR matching.",
+        )
+
+    submitted = st.form_submit_button(
+        "Run Proactive Search", type="primary", use_container_width=True
+    )
 
 # ── Execution ─────────────────────────────────────────────────────────────────
 if submitted:
