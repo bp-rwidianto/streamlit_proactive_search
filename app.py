@@ -21,37 +21,28 @@ st.markdown(
 )
 st.divider()
 
-# ── Model loader ──────────────────────────────────────────────────────────────
+# ── Model preload (runs once per app instance, cached across users) ───────────
 ml_left, ml_center, ml_right = st.columns([1, 3, 1])
 with ml_center:
     st.subheader("Model Status")
-    status_col, button_col = st.columns([3, 1])
-    with status_col:
-        if st.session_state.get("models_loaded"):
-            st.success("✅ Models loaded and ready (spaCy `en_core_web_sm` + GLiNER `gliner_medium-v2.1`)")
-        else:
-            st.warning("⚠️ Models not loaded — click **Load Models** before running a search.")
-    with button_col:
-        if st.button(
-            "Load Models",
-            type="primary",
-            use_container_width=True,
-            disabled=bool(st.session_state.get("models_loaded")),
-        ):
-            with st.status("Loading NLP models …", expanded=True) as ms:
-                try:
-                    st.write("Loading spaCy `en_core_web_sm` …")
-                    st.write("Loading GLiNER `urchade/gliner_medium-v2.1` (downloads on first run) …")
-                    nlp, gliner_model = _load_models()
-                    st.session_state.nlp = nlp
-                    st.session_state.gliner_model = gliner_model
-                    st.session_state.models_loaded = True
-                    st.write("✅ Models loaded.")
-                    ms.update(label="Models loaded", state="complete")
-                    st.rerun()
-                except Exception as e:
-                    ms.update(label=f"Model load failed: {e}", state="error")
-                    st.error(f"Failed to load models: {e}")
+    if "models_loaded" not in st.session_state:
+        with st.status("Preloading NLP models …", expanded=True) as ms:
+            try:
+                st.write("Loading spaCy `en_core_web_sm` …")
+                st.write("Loading GLiNER `urchade/gliner_medium-v2.1` …")
+                nlp, gliner_model = _load_models()
+                st.session_state.nlp = nlp
+                st.session_state.gliner_model = gliner_model
+                st.session_state.models_loaded = True
+                ms.update(label="Models loaded", state="complete")
+            except Exception as e:
+                st.session_state.models_loaded = False
+                ms.update(label=f"Model load failed: {e}", state="error")
+
+    if st.session_state.get("models_loaded"):
+        st.success("✅ Models loaded and ready (spaCy `en_core_web_sm` + GLiNER `gliner_medium-v2.1`)")
+    else:
+        st.error("❌ Models failed to load — check deployment logs.")
 
 st.divider()
 
