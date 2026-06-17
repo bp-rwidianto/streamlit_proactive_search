@@ -23,7 +23,12 @@ INSTITUTION_KEYWORDS = [
 def load_models():
     import spacy
     from gliner import GLiNER
-    nlp = spacy.load("en_core_web_sm")
+    try:
+        nlp = spacy.load("en_core_web_sm")
+    except OSError:
+        from spacy.cli import download
+        download("en_core_web_sm")
+        nlp = spacy.load("en_core_web_sm")
     gliner_model = GLiNER.from_pretrained("urchade/gliner_medium-v2.1")
     return nlp, gliner_model
 
