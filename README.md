@@ -1,8 +1,8 @@
 ---
-title: Proactive Search
-emoji: 🔍
-colorFrom: blue
-colorTo: indigo
+title: Noneegsearch
+emoji: 🌍
+colorFrom: red
+colorTo: gray
 sdk: docker
 app_port: 7860
 pinned: false
@@ -33,3 +33,5 @@ streamlit run app.py
 
 Push to a Hugging Face Space configured with `sdk: docker`. The image build
 will preload all models. Cold start is just loading weights into memory.
+
+Configuration reference: https://huggingface.co/docs/hub/spaces-config-reference
