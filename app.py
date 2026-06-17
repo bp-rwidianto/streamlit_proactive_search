@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import altair as alt
 
 st.set_page_config(
     page_title="Proactive Search",
@@ -162,32 +163,23 @@ if submitted:
     with st.status("Step 3 — Resolving affiliations …", expanded=True) as s3:
         total = len(raw_pubs)
         st.write(f"Processing **{total}** publications (NER + ROR lookup per publication)…")
-        prog        = st.progress(0, text=f"0 / {total}")
-        counter     = st.empty()
-        log_box     = st.empty()
-        log_lines: list[str] = []
-
-        def _step_log(msg: str) -> None:
-            log_lines.append(str(msg))
-            tail = log_lines[-300:]
-            log_box.markdown("\n\n".join(tail))
+        prog    = st.progress(0, text=f"0 / {total}")
+        counter = st.empty()
 
         matched_count = 0
         for i, pub in enumerate(raw_pubs.values(), start=1):
-            _step_log(f"**[{i}/{total}]** processing publication")
             try:
                 summary = extract_publication_summary(
                     pub=pub,
                     query_author=f"{author_name}[Author]",
                     nlp=nlp,
                     gliner_model=gliner_model,
-                    log_callback=_step_log,
                 )
                 publications.append(summary)
                 if summary.get("matched_ror_id") and summary["matched_ror_id"] == ror_id:
                     matched_count += 1
-            except Exception as e:
-                _step_log(f"   ⚠️ skipped due to error: {e}")
+            except Exception:
+                pass
 
             prog.progress(i / total, text=f"{i} / {total}")
             counter.markdown(
@@ -251,32 +243,67 @@ if submitted:
 
     csv_data = df.drop(columns=["PubMed Link"]).to_csv(index=False)
     st.download_button(
-        label="📥 Download as CSV",
+        label="📥 Download Lead Publications as CSV",
         data=csv_data,
         file_name=f"proactive_search_{author_name.replace(' ', '_')}.csv",
         mime="text/csv",
     )
 
+    # ── All processed publications (export) ───────────────────────────────────
+    with st.expander(f"All Processed Publications ({len(publications)})"):
+        all_rows = []
+        for p in publications:
+            aff_text = ""
+            if p.get("matched_affiliations"):
+                aff_text = p["matched_affiliations"][0].get("affiliation") or ""
+            pmid = p.get("pmid", "")
+            all_rows.append({
+                "PMID":                pmid,
+                "PubMed Link":         f"https://pubmed.ncbi.nlm.nih.gov/{pmid}" if pmid else "",
+                "Title":               p.get("title", ""),
+                "Date":                p.get("date", ""),
+                "Matched ROR ID":      p.get("matched_ror_id") or "",
+                "Matches Target ROR":  bool(ror_id and p.get("matched_ror_id") == ror_id),
+                "Matched Affiliation": aff_text,
+                "Keywords":            ", ".join(p.get("keywords") or []),
+                "MeSH Terms":          ", ".join(p.get("mesh_terms") or []),
+            })
+        all_df = pd.DataFrame(all_rows)
+        all_csv = all_df.drop(columns=["PubMed Link"], errors="ignore").to_csv(index=False)
+        st.download_button(
+            label="📥 Download All Processed Publications as CSV",
+            data=all_csv,
+            file_name=f"proactive_search_all_{author_name.replace(' ', '_')}.csv",
+            mime="text/csv",
+        )
+
     # ── Charts ────────────────────────────────────────────────────────────────
+    def _horizontal_bar(items: list[tuple[str, int]], label: str) -> alt.Chart:
+        chart_df = pd.DataFrame(items, columns=[label, "Count"])
+        return (
+            alt.Chart(chart_df)
+            .mark_bar()
+            .encode(
+                x=alt.X("Count:Q", title="Count"),
+                y=alt.Y(f"{label}:N", sort="-x", title=label),
+                tooltip=[label, "Count"],
+            )
+            .properties(height=400)
+        )
+
     col_kw, col_mesh = st.columns(2)
 
     with col_kw:
         if summary.get("keyword"):
             st.subheader("Top Keywords")
             kw_items = sorted(summary["keyword"].items(), key=lambda x: -x[1])[:15]
-            st.bar_chart(
-                pd.DataFrame(kw_items, columns=["Keyword", "Count"]).set_index("Keyword"),
-                height=350,
-            )
+            st.altair_chart(_horizontal_bar(kw_items, "Keyword"), use_container_width=True)
 
     with col_mesh:
         if summary.get("mesh"):
             st.subheader("Top MeSH Terms")
             mesh_items = sorted(summary["mesh"].items(), key=lambda x: -x[1])[:15]
-            st.bar_chart(
-                pd.DataFrame(mesh_items, columns=["MeSH Term", "Count"]).set_index("MeSH Term"),
-                height=350,
-            )
+            st.altair_chart(_horizontal_bar(mesh_items, "MeSH Term"), use_container_width=True)
 
     # ── Full lead insights ────────────────────────────────────────────────────
     with st.expander("Full Lead Insights (JSON)"):
