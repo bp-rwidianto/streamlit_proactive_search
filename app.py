@@ -8,7 +8,7 @@ st.set_page_config(
 )
 
 
-@st.cache_resource(show_spinner="Loading NLP models (first run may take a moment)...")
+@st.cache_resource(show_spinner=False)
 def _load_models():
     from parser_utils import load_models
     return load_models()
@@ -19,6 +19,40 @@ st.title("🔍 Proactive Search")
 st.markdown(
     "Search PubMed for an author's publications and surface those linked to their institution via **ROR**."
 )
+st.divider()
+
+# ── Model loader ──────────────────────────────────────────────────────────────
+ml_left, ml_center, ml_right = st.columns([1, 3, 1])
+with ml_center:
+    st.subheader("Model Status")
+    status_col, button_col = st.columns([3, 1])
+    with status_col:
+        if st.session_state.get("models_loaded"):
+            st.success("✅ Models loaded and ready (spaCy `en_core_web_sm` + GLiNER `gliner_medium-v2.1`)")
+        else:
+            st.warning("⚠️ Models not loaded — click **Load Models** before running a search.")
+    with button_col:
+        if st.button(
+            "Load Models",
+            type="primary",
+            use_container_width=True,
+            disabled=bool(st.session_state.get("models_loaded")),
+        ):
+            with st.status("Loading NLP models …", expanded=True) as ms:
+                try:
+                    st.write("Loading spaCy `en_core_web_sm` …")
+                    st.write("Loading GLiNER `urchade/gliner_medium-v2.1` (downloads on first run) …")
+                    nlp, gliner_model = _load_models()
+                    st.session_state.nlp = nlp
+                    st.session_state.gliner_model = gliner_model
+                    st.session_state.models_loaded = True
+                    st.write("✅ Models loaded.")
+                    ms.update(label="Models loaded", state="complete")
+                    st.rerun()
+                except Exception as e:
+                    ms.update(label=f"Model load failed: {e}", state="error")
+                    st.error(f"Failed to load models: {e}")
+
 st.divider()
 
 # ── Input Form ────────────────────────────────────────────────────────────────
@@ -66,10 +100,16 @@ if submitted:
     if not affiliation:
         st.error("Affiliation is required.")
         st.stop()
+    if not st.session_state.get("models_loaded"):
+        st.error("Models are not loaded yet. Please click **Load Models** above first.")
+        st.stop()
 
     from affiliation  import evaluate_affiliation_v2
     from pubmed       import get_publications
     from parser_utils import extract_publication_summary, summarize_publications
+
+    nlp          = st.session_state.nlp
+    gliner_model = st.session_state.gliner_model
 
     # ── Step 1 · Resolve institution ──────────────────────────────────────────
     ror_id   = None
@@ -97,18 +137,23 @@ if submitted:
             s1.update(label="Step 1 — Error", state="error")
             st.stop()
 
-    # ── Step 2 · Load NLP models ──────────────────────────────────────────────
-    nlp, gliner_model = _load_models()
-
-    # ── Step 3 · Fetch publications ───────────────────────────────────────────
+    # ── Step 2 · Fetch publications ───────────────────────────────────────────
     raw_pubs = {}
 
     with st.status("Step 2 — Fetching PubMed publications …", expanded=True) as s2:
         st.write("⚠️ This may take **several minutes** for common author names (fetching back to 2015).")
+        fetch_log = st.empty()
+        fetch_messages: list[str] = []
+
+        def _fetch_log(msg: str) -> None:
+            fetch_messages.append(str(msg))
+            tail = fetch_messages[-200:]
+            fetch_log.markdown("\n\n".join(tail))
+
         try:
             raw_pubs = get_publications(
                 terms=[f"{author_name}[Author]"],
-                log_callback=st.write,
+                log_callback=_fetch_log,
             )
             s2.update(label=f"Step 2 — Fetched {len(raw_pubs)} publications", state="complete")
         except Exception as e:
@@ -120,27 +165,43 @@ if submitted:
         st.warning("No publications found on PubMed for this author.")
         st.stop()
 
-    # ── Step 4 · Process affiliations ─────────────────────────────────────────
+    # ── Step 3 · Process affiliations ─────────────────────────────────────────
     publications = []
 
     with st.status("Step 3 — Resolving affiliations …", expanded=True) as s3:
-        st.write(f"Processing {len(raw_pubs)} publications (this may also take a while)…")
-        prog  = st.progress(0)
         total = len(raw_pubs)
+        st.write(f"Processing **{total}** publications (NER + ROR lookup per publication)…")
+        prog        = st.progress(0, text=f"0 / {total}")
+        counter     = st.empty()
+        log_box     = st.empty()
+        log_lines: list[str] = []
 
-        for i, pub in enumerate(raw_pubs.values()):
+        def _step_log(msg: str) -> None:
+            log_lines.append(str(msg))
+            tail = log_lines[-300:]
+            log_box.markdown("\n\n".join(tail))
+
+        matched_count = 0
+        for i, pub in enumerate(raw_pubs.values(), start=1):
+            _step_log(f"**[{i}/{total}]** processing publication")
             try:
-                publications.append(
-                    extract_publication_summary(
-                        pub=pub,
-                        query_author=f"{author_name}[Author]",
-                        nlp=nlp,
-                        gliner_model=gliner_model,
-                    )
+                summary = extract_publication_summary(
+                    pub=pub,
+                    query_author=f"{author_name}[Author]",
+                    nlp=nlp,
+                    gliner_model=gliner_model,
+                    log_callback=_step_log,
                 )
-            except Exception:
-                pass
-            prog.progress((i + 1) / total)
+                publications.append(summary)
+                if summary.get("matched_ror_id") and summary["matched_ror_id"] == ror_id:
+                    matched_count += 1
+            except Exception as e:
+                _step_log(f"   ⚠️ skipped due to error: {e}")
+
+            prog.progress(i / total, text=f"{i} / {total}")
+            counter.markdown(
+                f"Processed **{i}/{total}** · matched to target ROR: **{matched_count}**"
+            )
 
         s3.update(label=f"Step 3 — Processed {len(publications)} publications", state="complete")
 

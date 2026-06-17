@@ -91,10 +91,15 @@ def is_author_match(query_author: str, full_name: str, threshold: int = 85) -> b
     return fuzz.ratio(query_clean, full_clean) >= threshold
 
 
-def extract_publication_summary(pub: dict, query_author: str, nlp, gliner_model) -> dict:
+def extract_publication_summary(pub: dict, query_author: str, nlp, gliner_model, log_callback=None) -> dict:
+    if log_callback is None:
+        log_callback = lambda *_args, **_kwargs: None
+
     pmid  = pub.get("pmid")
     title = pub.get("article_title") or ""
     date  = pub.get("date") or pub.get("pub_date") or pub.get("date_revised")
+
+    log_callback(f"PMID `{pmid}` — {(title or '')[:80]}")
 
     matched_affiliations = []
     authors = pub.get("authors") or []
@@ -118,6 +123,10 @@ def extract_publication_summary(pub: dict, query_author: str, nlp, gliner_model)
                 if isinstance(x, dict) and x.get("Affiliation")
             )
         matched_affiliations.append({"author": full_name, "affiliation": affiliation})
+        log_callback(f"   matched author: **{full_name}**")
+
+    if not matched_affiliations:
+        log_callback("   no matching authors on this publication")
 
     mesh_terms = [t for t in (pub.get("mesh") or []) if isinstance(t, str)]
 
@@ -133,15 +142,25 @@ def extract_publication_summary(pub: dict, query_author: str, nlp, gliner_model)
     ror_id = None
     if matched_affiliations and matched_affiliations[0].get("affiliation"):
         try:
-            parsed = parse_affiliation(matched_affiliations[0]["affiliation"], nlp, gliner_model)
+            aff_text = matched_affiliations[0]["affiliation"]
+            log_callback(f"   parsing affiliation: _{aff_text[:100]}_")
+            parsed = parse_affiliation(aff_text, nlp, gliner_model)
+            log_callback(
+                f"   → institution: `{parsed['institution'] or '—'}` · "
+                f"city: `{parsed['city'] or '—'}` · country: `{parsed['country'] or '—'}`"
+            )
             if parsed["institution"]:
                 result = evaluate_affiliation_v2({
                     "query":   parsed["institution"],
                     "country": parsed["country"],
                 })
                 ror_id = result["ror"]["result"].get("ror_id")
-        except Exception:
-            pass
+                if ror_id:
+                    log_callback(f"   ✅ ROR: `{ror_id}`")
+                else:
+                    log_callback("   ⚠️ no ROR match")
+        except Exception as e:
+            log_callback(f"   ⚠️ error parsing affiliation: {e}")
 
     return {
         "pmid":                 pmid,
