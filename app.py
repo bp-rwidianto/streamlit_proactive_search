@@ -1,3 +1,4 @@
+import hashlib
 import streamlit as st
 import pandas as pd
 import altair as alt
@@ -21,6 +22,39 @@ st.markdown(
     "Search PubMed for an author's publications and surface those linked to their institution via **ROR**."
 )
 st.divider()
+
+# Enable or disable authorization by changing this variable.
+# Set ENABLE_AUTH = False to skip the password prompt.
+ENABLE_AUTH = True
+
+def authorize():
+    if not ENABLE_AUTH:
+        return
+
+    if "authorized" not in st.session_state:
+        st.session_state.authorized = False
+
+    if not st.session_state.authorized:
+        with st.form("auth_form"):
+            password = st.text_input(
+                "Password",
+                type="password",
+                help="Enter the access password to use the app.",
+            )
+            submit_password = st.form_submit_button("Unlock")
+
+        if submit_password:
+            password_hash = hashlib.sha256(password.encode("utf-8")).hexdigest() if password else ""
+            if password_hash == "ef119952bda7585ab9102225e56b03bdef1ddc5b7c3f1925da7fdef3337a3359":
+                st.session_state.authorized = True
+                st.success("Access granted. You can now use the Proactive Search app.")
+                st.experimental_rerun()
+            else:
+                st.error("Invalid password. Please try again.")
+
+        st.stop()
+
+authorize()
 
 # ── Model preload (runs once per app instance, cached across users) ───────────
 ml_left, ml_center, ml_right = st.columns([1, 3, 1])
